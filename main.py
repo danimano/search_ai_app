@@ -1,33 +1,34 @@
 from llama_cpp import Llama
 import requests
+import re
 
 llm = Llama(model_path="./model.gguf", n_ctx=4096, verbose=False)
 
 
 def search_wikipedia(query: str) -> str:
-    # DEFENSIVE: Clean the LLM output to prevent bad URLs
     clean_query = " ".join(query.split()).strip(' "\'')
-    if not clean_query:
-        return "Search Error: No keywords provided."
-
-    # DEFENSIVE: Add User-Agent to bypass 403 Forbidden errors
     headers = {'User-Agent': 'MyLocalAISearch/1.0 (contact@example.com)'}
-    url = "https://en.wikipedia.org/w/api.php"
-    params = {
-        "action": "query", "list": "search",
-        "srsearch": clean_query, "format": "json", "srlimit": 3
-    }
+
+    # STEP 1: Find the best matching page title
+    search_url = "https://en.wikipedia.org/w/api.php"
+    params = {"action": "query", "list": "search", "srsearch": clean_query, "format": "json", "srlimit": 1}
 
     try:
-        response = requests.get(url, params=params, headers=headers, timeout=5)
-        data = response.json()
-        compiled_results = ""
-        for item in data.get('query', {}).get('search', []):
-            title = item['title']
-            import re
-            clean_snippet = re.sub(r'<[^>]+>', '', item.get('snippet', ''))
-            compiled_results += f"Source ({title}): {clean_snippet}...\n\n"
-        return compiled_results.strip()
+        r = requests.get(search_url, params=params, headers=headers, timeout=5)
+        search_results = r.json().get('query', {}).get('search', [])
+
+        if not search_results: return f"No results for '{clean_query}'"
+
+        best_title = search_results[0]['title']
+
+        # STEP 2: Upgrade to Summary API for high-density context
+        summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{best_title.replace(' ', '_')}"
+        summary_resp = requests.get(summary_url, headers=headers, timeout=5)
+
+        if summary_resp.status_code == 200:
+            summary_data = summary_resp.json()
+            return f"--- Source: {best_title} ---\n{summary_data.get('extract', '')}"
+        return "Error fetching summary."
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -36,7 +37,7 @@ def pass_1_extract_query(user_prompt: str) -> str:
     response = llm.create_chat_completion(
         messages=[
             {"role": "system",
-             "content": "Extract search keywords for Wikipedia. Output only keywords. Do not use newlines."},
+             "content": "Extract search keywords for Wikipedia. Output only keywords. Do not answer the question."},
             {"role": "user", "content": user_prompt}
         ],
         max_tokens=20, temperature=0.1
@@ -47,8 +48,7 @@ def pass_1_extract_query(user_prompt: str) -> str:
 def pass_2_generate_answer(user_prompt: str, context: str) -> str:
     response = llm.create_chat_completion(
         messages=[
-            {"role": "system",
-             "content": "You are a helpful assistant. Answer the user's question using ONLY the provided context."},
+            {"role": "system", "content": "You are an expert researcher. Answer using ONLY the provided context."},
             {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_prompt}"}
         ],
         max_tokens=200, temperature=0.1
