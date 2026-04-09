@@ -15,17 +15,15 @@ print("1. Checking/Downloading Model from HuggingFace...")
 model_path = hf_hub_download(repo_id=REPO_ID, filename=FILENAME)
 
 print("2. Loading Model into RAM (Llama.cpp)...")
-# n_ctx is the context window. We limit it to 2048 to simulate mobile RAM limits.
 llm = Llama(
     model_path=model_path,
     n_ctx=2048,
-    verbose=False  # Set to True if you want to see exact token generation speeds
+    verbose=False
 )
 
 def load_instruction(filename):
     """Helper to read the instruction text file."""
     if not os.path.exists(filename):
-        # Fallback if you forget the file
         return "Extract search keywords for Wikipedia. Output only keywords."
     with open(filename, 'r') as f:
         return f.read().strip()
@@ -115,7 +113,7 @@ def pass_2_generate_answer(user_prompt: str, context: str) -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": combined_user_content}
         ],
-        max_tokens=512,  # Limit the output length
+        max_tokens=512,
         temperature=0.3,
         stream=True
     )
